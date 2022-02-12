@@ -20,7 +20,7 @@
 
 ## Introduction
 
-_This pipeline via automation will deploy Prometheus and Grafana on a AWS Fargate also the core infraestructure to support it._
+_This pipeline via automation will deploy Prometheus and Grafana on an AWS Fargate also the core infrastructure to support it._
 
 <a href="https://grafana.com">Grafana</a> - Grafana is a multi-platform open source analytics and interactive visualization web application.
 
