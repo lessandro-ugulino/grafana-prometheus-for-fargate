@@ -1,0 +1,16 @@
+---
+#-----Deploy CF Cluster-----
+- name: Create ECS Cluster Cloudformation from template
+  check_mode: "{{ cloudformation.check_mode_override }}"
+  template:
+    src: cluster.yml.j2
+    dest: /tmp/cluster.yml
+
+- name: Submit ECS Cluster Cloudformation template
+  cloudformation:
+    stack_name: "ecs-cluster-lessandro"
+    region: "{{ cloudformation.region }}"
+    create_changeset: "{{ cloudformation.create_changeset }}"
+    state: "{{ cloudformation.state }}"
+    validate_certs: no
+    template: /tmp/cluster.yml

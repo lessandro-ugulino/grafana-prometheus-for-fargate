@@ -1,0 +1,180 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: >-
+  Create VPC, Subnets, IGW and NAT
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "{{ VPC.CidrBlock }}"
+      EnableDnsSupport: "{{ VPC.EnableDnsSupport }}"
+      EnableDnsHostnames: "{{ VPC.EnableDnsHostnames }}"
+      Tags:
+        - Key: Name
+          Value: "{{ VPC.Tags.Name }}"
+
+#-----Route Tables-----
+  RtbPrivate:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: rtb-monitor-private
+  RtbPublic:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: rtb-monitor-public
+
+#-----Subnets-----
+  SbnPrivate2a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      MapPublicIpOnLaunch: false
+      CidrBlock: 192.168.128.0/18
+      AvailabilityZone: ap-southeast-2a
+      Tags:
+        - Key: Name
+          Value: sbn-monitor-private-2a
+
+  RtbPrivateAss2a:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RtbPrivate
+      SubnetId: !Ref SbnPrivate2a
+
+  SbnPrivate2b:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      MapPublicIpOnLaunch: false
+      CidrBlock: 192.168.192.0/18
+      AvailabilityZone: ap-southeast-2b
+      Tags:
+        - Key: Name
+          Value: sbn-monitor-private-2b
+
+  RtbPrivateAss2b:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RtbPrivate
+      SubnetId: !Ref SbnPrivate2b
+
+  SbnPublic2a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      MapPublicIpOnLaunch: true
+      CidrBlock: 192.168.0.0/18
+      AvailabilityZone: ap-southeast-2a
+      Tags:
+        - Key: Name
+          Value: sbn-monitor-public-2a
+
+  RtbPublicAss2a:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RtbPublic
+      SubnetId: !Ref SbnPublic2a
+
+  SbnPublic2b:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      MapPublicIpOnLaunch: false
+      CidrBlock: 192.168.64.0/18
+      AvailabilityZone: ap-southeast-2b
+      Tags:
+        - Key: Name
+          Value: sbn-monitor-public-2b
+
+  RtbPublicAss2b:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RtbPublic
+      SubnetId: !Ref SbnPublic2b
+
+#-----IGW and Route-----
+  Igw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: igw-monitor
+  IgwAttch:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref Igw
+      VpcId: !Ref Vpc
+  RtPublic:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref RtbPublic
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref Igw
+
+
+#-----NAT and route-----
+  Nat:
+    Type: AWS::EC2::NatGateway
+    DependsOn: IgwAttch
+    Properties:
+      AllocationId:
+          Fn::GetAtt:
+          - EIP
+          - AllocationId
+      SubnetId: !Ref SbnPublic2b
+      Tags:
+        - Key: Name
+          Value: nat-monitor
+
+  EIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: nat-monitor
+
+  RtPrivate:
+    Type: AWS::EC2::Route
+    DependsOn: Nat
+    Properties:
+      RouteTableId: !Ref RtbPrivate
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref Nat
+
+#-----Output-----
+Outputs:
+  Vpc:
+    Description: Vpc
+    Value: !Ref Vpc
+    Export:
+      Name: VpcId
+
+  SbnPrivate2a:
+    Description: SbnPrivate2a
+    Value: !Ref SbnPrivate2a
+    Export:
+      Name: SbnPrivate2a
+  SbnPrivate2b:
+    Description: SbnPrivate2b
+    Value: !Ref SbnPrivate2b
+    Export:
+      Name: SbnPrivate2b
+
+  SbnPublic2a:
+    Description: SbnPublic2a
+    Value: !Ref SbnPublic2a
+    Export:
+      Name: SbnPublic2a
+  SbnPublic2b:
+    Description: SbnPublic2b
+    Value: !Ref SbnPublic2b
+    Export:
+      Name: SbnPublic2b

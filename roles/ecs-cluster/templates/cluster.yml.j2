@@ -1,0 +1,44 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: >-
+  Create ECS Cluster
+
+Resources:
+
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: cluster-ecs-lessandro
+      ClusterSettings:
+        - Name: containerInsights
+          Value: enabled
+
+  ECSClusterLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/fargate/${AWS::StackName}"
+      RetentionInDays: 30
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+
+Outputs:
+  ECSCluster:
+    Description: ECSCluster
+    Value: !Ref ECSCluster
+    Export:
+      Name: ECSCluster
+  TaskExecutionRole:
+    Description: TaskExecutionRoleArn
+    Value: !GetAtt TaskExecutionRole.Arn
+    Export:
+      Name: TaskExecutionRoleArn

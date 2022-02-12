@@ -1,0 +1,15 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Deploy Route53 Monitor ECS
+
+Resources:
+  AppRecordSet:
+    Type: AWS::Route53::RecordSetGroup
+    Properties:
+      HostedZoneName: "{{ Route53.HostedZoneName }}"
+      RecordSets:
+      - Name: "{{ Route53.RecordName }}"
+        Type: 'A'
+        AliasTarget:
+          DNSName: !ImportValue MonitorLbDNS
+          HostedZoneId: !ImportValue MonitorLbCanonicalHostedZoneID

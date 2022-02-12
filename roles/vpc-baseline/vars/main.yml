@@ -1,0 +1,7 @@
+---
+VPC:
+  CidrBlock: "192.168.0.0/16"
+  EnableDnsSupport: "true"
+  EnableDnsHostnames: "true"
+  Tags:
+    Name: vpc-monitor-lessandro

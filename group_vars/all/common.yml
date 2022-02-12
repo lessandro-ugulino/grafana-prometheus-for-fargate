@@ -1,0 +1,11 @@
+---
+cloudformation:
+  check_mode_override: false
+  region: ap-southeast-2
+  create_changeset: true
+  state: present
+
+Route53:
+  HostedZoneName: "ugulino.com."
+  RecordName: "monitor.ugulino.com"
+  CertificateId: "5eaa197e"

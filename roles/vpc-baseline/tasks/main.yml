@@ -1,0 +1,17 @@
+---
+#-----Deploy CF Network-----
+
+- name: Create Network Cloudformation from template
+  check_mode: "{{ cloudformation.check_mode_override }}"
+  template:
+    src: network.yml.j2
+    dest: /tmp/network.yml
+
+- name: Submit Network Cloudformation template
+  cloudformation:
+    stack_name: network-baseline-lessandro
+    region: "{{ cloudformation.region }}"
+    create_changeset: "{{ cloudformation.create_changeset }}"
+    state: "{{ cloudformation.state }}"
+    validate_certs: no
+    template: /tmp/network.yml

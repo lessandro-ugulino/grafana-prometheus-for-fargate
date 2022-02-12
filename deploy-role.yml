@@ -1,0 +1,7 @@
+---
+- hosts: localhost
+  roles:
+    - vpc-baseline
+    - ecs-cluster
+    - ecs-monitor
+    - route53

@@ -1,0 +1,16 @@
+---
+#-----Deploy CF -----
+- name: Create ECS Cloudformation from template
+  check_mode: "{{ cloudformation.check_mode_override }}"
+  template:
+    src: deploy-monitor.yml.j2
+    dest: /tmp/deploy-monitor.yml
+
+- name: Submit ECS Cloudformation template
+  cloudformation:
+    stack_name: fargate-monitor-server
+    region: "{{ cloudformation.region }}"
+    create_changeset: "{{ cloudformation.create_changeset }}"
+    state: "{{ cloudformation.state }}"
+    validate_certs: no
+    template: /tmp/deploy-monitor.yml

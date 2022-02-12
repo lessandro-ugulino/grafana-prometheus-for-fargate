@@ -1,0 +1,329 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Description: >-
+  Deploy ECS for Monitor Server.
+
+Resources:
+
+  EfsMonitorSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: NFS access to monitor server
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref MonitorWebSg
+      VpcId:
+        Fn::ImportValue: VpcId
+      Tags:
+        - Key: Name
+          Value: sg-efs-monitor-fargate
+
+  MonitorLbSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Port 443 access to load balancers
+      SecurityGroupIngress:
+        - IpProtocol: TCP
+          FromPort: 443
+          ToPort: 443
+          CidrIp: "0.0.0.0/0"
+      VpcId:
+        Fn::ImportValue: VpcId
+      Tags:
+        - Key: Name
+          Value: sg-lb-monitor-server
+
+  MonitorWebSg:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for Monitor App containers
+      SecurityGroupIngress:
+        - IpProtocol: TCP
+          FromPort: 3000
+          ToPort: 3000
+          SourceSecurityGroupId: !Ref MonitorLbSg
+      VpcId:
+        Fn::ImportValue: VpcId
+      Tags:
+        - Key: Name
+          Value: sg-fargate-app-monitor
+
+  ECSIamRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rol-ecs-monitor-server
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ecs-tasks.amazonaws.com
+            - ec2.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy'
+        - 'arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess'
+      Path: /
+      Policies:
+        - PolicyName: "pol-ecs-monitor-server"
+          PolicyDocument:
+            Statement:
+              - Sid: LogGroupAccess
+                Effect: Allow
+                Action:
+                  - "logs:CreateLogStream"
+                  - "logs:CreateLogGroup"
+                  - "logs:PutLogEvents"
+                  - "logs:DescribeLogStreams"
+                Resource:
+                  - "arn:aws:logs:*:*:*"
+                Resource:
+                  - "*"
+              - Sid: SSMMessages
+                Effect: Allow
+                Action:
+                  - "ssmmessages:CreateControlChannel"
+                  - "ssmmessages:CreateDataChannel"
+                  - "ssmmessages:OpenControlChannel"
+                  - "ssmmessages:OpenDataChannel"
+                  - "ssm:StartSession"
+                Resource:
+                  - "*"
+              - Sid: KmsAccess
+                Effect: Allow
+                Action:
+                  - kms:Decrypt
+                Resource:
+                  - 'Fn::Join':
+                    - ':'
+                    - - 'arn:aws:kms'
+                      - Ref: 'AWS::Region'
+                      - Ref: 'AWS::AccountId'
+                      - 'key/alias/aws/ssm'
+
+  EfsMonitorKMS:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: kms-efs-monitor
+      MultiRegion: true
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-policy
+        Statement:
+        - Sid: Enable IAM User Permissions
+          Effect: Allow
+          Principal:
+            AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+          Action: kms:*
+          Resource: '*'
+  EfsMonitorKMSAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/efs/kms-monitor
+      TargetKeyId:
+        Ref: EfsMonitorKMS
+
+  FileSystemMonitor:
+    Type: 'AWS::EFS::FileSystem'
+    Properties:
+      BackupPolicy:
+        Status: ENABLED
+      PerformanceMode: generalPurpose
+      Encrypted: true
+      FileSystemTags:
+        - Key: Name
+          Value: efs-fargate-monitor
+      FileSystemPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Action:
+              - "elasticfilesystem:ClientMount"
+              - "elasticfilesystem:ClientRootAccess"
+              - "elasticfilesystem:ClientWrite"
+            Principal:
+                AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/rol-ecs-monitor-server'
+      KmsKeyId: !Ref EfsMonitorKMS
+
+  MountTargetMonitorPrvA:
+    DependsOn: FileSystemMonitor
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystemMonitor
+      SubnetId:
+        Fn::ImportValue: SbnPrivate2a
+      SecurityGroups:
+      -   !Ref EfsMonitorSg
+  MountTargetMonitorPrvB:
+    DependsOn: FileSystemMonitor
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystemMonitor
+      SubnetId:
+        Fn::ImportValue: SbnPrivate2b
+      SecurityGroups:
+      - !Ref EfsMonitorSg
+  MonitorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/fargate/${AWS::StackName}"
+      RetentionInDays: 30
+
+  MonitorLb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      IpAddressType: ipv4
+      Scheme: internet-facing
+      Name: alb-monitor-server
+      Subnets:
+        - Fn::ImportValue: SbnPublic2a
+        - Fn::ImportValue: SbnPublic2b
+      SecurityGroups:
+        - !Ref MonitorLbSg
+      Tags:
+        - Key: Name
+          Value: alb-monitor-server
+
+  MonitorTg:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId:
+        Fn::ImportValue: VpcId
+      Name: tg-monitor-server
+      Protocol: HTTP
+      Port: 3000
+      TargetType: ip
+      HealthCheckPath: "/api/health"
+      HealthCheckIntervalSeconds: 300
+      HealthCheckTimeoutSeconds: 40
+      Tags:
+      - Key: name
+        Value: tg-monitor-server
+
+  MonitorHTTPListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn: MonitorLb
+    Properties:
+      LoadBalancerArn: !Ref MonitorLb
+      Protocol: HTTPS
+      Port: 443
+      Port: 443
+      SslPolicy: "ELBSecurityPolicy-TLS-1-1-2017-01"
+      Certificates:
+        - CertificateArn: !Sub arn:aws:acm:${AWS::Region}:${AWS::AccountId}:certificate/{{ Route53.CertificateId }} #your ACM Arn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref MonitorTg
+
+  MonitorTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn: FileSystemMonitor
+    Properties:
+      Family: td-monitor-server
+      ExecutionRoleArn: !Ref ECSIamRole
+      TaskRoleArn: !Ref ECSIamRole
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: 2048
+      Memory: 4096
+      ContainerDefinitions:
+
+        - Name: grafana
+          Image: grafana/grafana
+          PortMappings:
+            -
+              ContainerPort: 3000
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/fargate/${AWS::StackName}"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: grafana-fargate
+
+        - Name: prometheus
+          Image: prom/prometheus
+          Essential: false
+          MountPoints:
+            -
+              SourceVolume: efs-monitoring
+              ContainerPath: "/etc/prometheus/"
+          PortMappings:
+            -
+              ContainerPort: 9090
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/fargate/${AWS::StackName}"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: prometheus-fargate
+      Volumes:
+        - Name: efs-monitoring
+          EFSVolumeConfiguration:
+            fileSystemId: !Ref FileSystemMonitor
+            RootDirectory: "/"
+            TransitEncryption: "ENABLED"
+            AuthorizationConfig:
+              IAM: "ENABLED"
+      Tags:
+        - Key: Name
+          Value: td-monitor-server
+
+  MonitorServerECSService:
+    DependsOn:
+    - MonitorHTTPListener
+    - FileSystemMonitor
+    Type: AWS::ECS::Service
+    Properties:
+      LaunchType: FARGATE
+      Cluster: !ImportValue ECSCluster
+      ServiceName: ecs-svc-monitor-server
+      TaskDefinition: !Ref MonitorTaskDefinition
+      DesiredCount: 1
+      EnableExecuteCommand: true
+      SchedulingStrategy: REPLICA
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      HealthCheckGracePeriodSeconds: 300
+      LoadBalancers:
+        - TargetGroupArn: !Ref MonitorTg
+          ContainerName: grafana
+          ContainerPort: 3000
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          Subnets:
+            - !ImportValue SbnPrivate2a
+            - !ImportValue SbnPrivate2b
+          SecurityGroups:
+            - !Ref MonitorWebSg
+          AssignPublicIp: DISABLED
+      Tags:
+        - Key: Name
+          Value: ecs-svc-monitor-server
+
+
+#-----Output-----
+Outputs:
+  EfsMonitorKMSAlias:
+    Description: 'EFS Monitor KMS Encryption Key Alias'
+    Value:
+      Ref: 'EfsMonitorKMSAlias'
+  MonitorLb:
+    Description: 'Monitor Load Balancer ID'
+    Value:
+      !GetAtt 'MonitorLb.CanonicalHostedZoneID'
+    Export:
+      Name: MonitorLbCanonicalHostedZoneID
+  MonitorLbDNS:
+    Description: 'Monitor Load Balancer DNS'
+    Value:
+      !GetAtt 'MonitorLb.DNSName'
+    Export:
+      Name: MonitorLbDNS

@@ -1,0 +1,16 @@
+---
+#-----Deploy CF Route53-----
+- name: Create Route53 Cloudformation from template
+  check_mode: "{{ cloudformation.check_mode_override }}"
+  template:
+    src: route53.yml.j2
+    dest: /tmp/route53.yml
+
+- name: Submit Route53 Cloudformation template
+  cloudformation:
+    stack_name: "ecs-route53-lessandro"
+    region: "{{ cloudformation.region }}"
+    create_changeset: "{{ cloudformation.create_changeset }}"
+    state: "{{ cloudformation.state }}"
+    validate_certs: no
+    template: /tmp/route53.yml
